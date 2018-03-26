@@ -8,6 +8,17 @@ import nms
 home = os.path.expanduser('~')
 
 
+def check_is_movement(possible_objects):
+    for i in possible_objects:
+        if i[2] - i[0] > 30 or i[3] - i[1] > 30:
+            return True
+
+    if len(possible_objects) > 10:
+        return True
+
+    return False
+
+
 def apply_contours(image: np.ndarray):
     im2, contours, hierarchy = cv2.findContours(image, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     new_contours = []
@@ -69,7 +80,9 @@ while(1):
           cv2.rectangle(frame, (r[0], r[1]), (r[2], r[3]), (255, 0, 0), 3)
         # cv2.imwrite("masked_images_1/"+str(count)+'.jpg', frame)
         count += 1
-        vout.write(frame)
+
+        if check_is_movement(possible_objects):
+             vout.write(frame)
         print(count, frame.shape)
         cv2.imshow('frame', fgmask)
         k = cv2.waitKey(30) & 0xff
