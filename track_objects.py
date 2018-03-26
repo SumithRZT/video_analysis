@@ -3,7 +3,7 @@ import cv2
 import time
 import os
 import nms
-
+import traceback
 
 home = os.path.expanduser('~')
 
@@ -17,6 +17,19 @@ def check_is_movement(possible_objects):
         return True
 
     return False
+
+
+def save_video(frame_array, frame):
+    fps = 25
+    fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
+    vout = cv2.VideoWriter()
+    vout.open(home + '/' + time.time().__str__() + '.mp4', fourcc, fps, (frame.shape[1], frame.shape[0]),
+                        True)
+    for frame in frame_array:
+        vout.write(frame)
+
+    vout.release()
+    cv2.destroyAllWindows()
 
 
 def apply_contours(image: np.ndarray):
@@ -37,30 +50,38 @@ def apply_contours(image: np.ndarray):
     return rect_list
 
 
-def remove_noise(img):
-    morph = img.copy()
+def pad_black(frame):
+    frame[0:2] = np.full(frame[0:2].shape, fill_value=0, dtype=np.uint8)
+    frame[-2:] = np.full(frame[-2:].shape, fill_value=0, dtype=np.uint8)
+    frame[:, 0:2] = np.full(frame[:, 0:2].shape, fill_value=0, dtype=np.uint8)
+    frame[:, -2:] = np.full(frame[:, -2:].shape, fill_value=0, dtype=np.uint8)
 
-    kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (1, 1))
-    morph = cv2.morphologyEx(morph, cv2.MORPH_CLOSE, kernel)
-    morph = cv2.morphologyEx(morph, cv2.MORPH_OPEN, kernel)
-    kernel1 = cv2.getStructuringElement(cv2.MORPH_CROSS, (2, 2))
-    morph = cv2.erode(morph, kernel1, iterations=1)
+    return frame
 
-    return morph
+
+def check_with_first_frame(first_frame, intermediate_frame):
+    first_frame_gray = cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY)
+    intermediate_frame_gray = cv2.cvtColor(intermediate_frame, cv2.COLOR_BGR2GRAY)
+    frameDelta = cv2.absdiff(first_frame_gray, intermediate_frame_gray)
+    thresh = cv2.threshold(frameDelta, 25, 255, cv2.THRESH_BINARY)[1]
+    thresh = cv2.medianBlur(thresh, ksize=7)
+    thresh = pad_black(thresh)
+    dilated = cv2.dilate(thresh, kernel, iterations=2)
+    possible_objects = apply_contours(dilated)
+    return check_is_movement(possible_objects)
 
 cap = cv2.VideoCapture('/Users/sumithkrishna/Downloads/very dangerous ATM cctv footage in INDIA.mp4')
 fgbg = cv2.createBackgroundSubtractorMOG2()
 cv2.createBackgroundSubtractorMOG2(detectShadows=False)
 
-fps = 25
-
-_, frame = cap.read()
-fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
-vout = cv2.VideoWriter()
-success = vout.open(home+'/'+time.time().__str__()+'.mp4', fourcc, fps, (frame.shape[1], frame.shape[0]), True)
-kernel = np.ones((5,5),np.uint8)
-count = 1
+kernel = np.ones((5, 5), np.uint8)
+frame_count = 1
 previous = 0
+
+first_frame = None
+frame_array = []
+no_mov_arr = []
+rejected_arr = []
 while(1):
     ret, frame = cap.read()
     if frame is None:
@@ -69,27 +90,64 @@ while(1):
             continue
         if previous == 1:
             break
+
+    if first_frame is None:
+       first_frame = frame
     try:
         fgmask = fgbg.apply(frame)
         fgmask = cv2.medianBlur(fgmask, ksize=7)
         fgmask = cv2.threshold(fgmask, 25, 255, cv2.THRESH_BINARY)[1]
         fgmask = cv2.dilate(fgmask, kernel, iterations=2)
+        fgmask = pad_black(fgmask)
         possible_objects = apply_contours(fgmask)
         possible_objects = nms.non_max_suppression(np.asarray(possible_objects))
-        for r in possible_objects:
-          cv2.rectangle(frame, (r[0], r[1]), (r[2], r[3]), (255, 0, 0), 3)
-        # cv2.imwrite("masked_images_1/"+str(count)+'.jpg', frame)
-        count += 1
+        frame_count += 1
 
         if check_is_movement(possible_objects):
-             vout.write(frame)
-        print(count, frame.shape)
-        cv2.imshow('frame', fgmask)
+              frame_array.append(frame)
+
+        elif check_with_first_frame(first_frame, frame):
+            frame_array.append(frame)
+
+            if len(rejected_arr) == 0:
+                rejected_arr.append(frame_count)
+
+            if frame_count - rejected_arr[-1] >1:
+                rejected_arr = [frame_count]
+
+            if frame_count - rejected_arr[-1] == 1:
+                rejected_arr.append(frame_count)
+
+            if len(rejected_arr) >=12:
+                save_video(list(frame_array), frame)
+                frame_array =[]
+                first_frame = frame
+                rejected_arr = []
+
+        else:
+            if len(frame_array)!=0:
+                if len(no_mov_arr) == 0:
+                    no_mov_arr.append(frame_count)
+
+                if frame_count - no_mov_arr[-1] >1:
+                    no_mov_arr = [frame_count]
+
+                if frame_count - no_mov_arr[-1] == 1:
+                    no_mov_arr.append(frame_count)
+
+                if len(no_mov_arr) >=12:
+                    save_video(list(frame_array), frame)
+                    frame_array =[]
+                    first_frame = frame
+                    no_mov_arr = []
+
+        print(frame_count, frame.shape, "No Mov Arr len ", len(no_mov_arr))
+        # cv2.imshow('frame', fgmask)
         k = cv2.waitKey(30) & 0xff
         if k == 27:
             break
     except Exception:
+        traceback.print_exc()
         break
-vout.release()
 cap.release()
 cv2.destroyAllWindows()
