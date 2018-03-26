@@ -4,6 +4,7 @@ import time
 import os
 import nms
 
+
 home = os.path.expanduser('~')
 
 
@@ -36,9 +37,9 @@ def remove_noise(img):
 
     return morph
 
-cap = cv2.VideoCapture('/Users/sumithkrishna/Desktop/A.mp4')
+cap = cv2.VideoCapture('/Users/sumithkrishna/Downloads/very dangerous ATM cctv footage in INDIA.mp4')
 fgbg = cv2.createBackgroundSubtractorMOG2()
-
+cv2.createBackgroundSubtractorMOG2(detectShadows=False)
 
 fps = 25
 
@@ -46,7 +47,7 @@ _, frame = cap.read()
 fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
 vout = cv2.VideoWriter()
 success = vout.open(home+'/'+time.time().__str__()+'.mp4', fourcc, fps, (frame.shape[1], frame.shape[0]), True)
-
+kernel = np.ones((5,5),np.uint8)
 count = 1
 previous = 0
 while(1):
@@ -60,6 +61,8 @@ while(1):
     try:
         fgmask = fgbg.apply(frame)
         fgmask = cv2.medianBlur(fgmask, ksize=7)
+        fgmask = cv2.threshold(fgmask, 25, 255, cv2.THRESH_BINARY)[1]
+        fgmask = cv2.dilate(fgmask, kernel, iterations=2)
         possible_objects = apply_contours(fgmask)
         possible_objects = nms.non_max_suppression(np.asarray(possible_objects))
         for r in possible_objects:
